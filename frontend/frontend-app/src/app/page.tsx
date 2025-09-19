@@ -39,6 +39,9 @@ export default function Inbox() {
   const [loading, setLoading] = useState(true)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [hasNewMessages, setHasNewMessages] = useState(false)
+  const [newMessageThreads, setNewMessageThreads] = useState<Set<string>>(new Set())
+  const [threadMessageCounts, setThreadMessageCounts] = useState<Record<string, number>>({})
+  
   
   const [previousMessageCount, setPreviousMessageCount] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -64,14 +67,7 @@ export default function Inbox() {
     const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current
     const isAtBottomNow = scrollHeight - scrollTop - clientHeight < 10 // 10px threshold
     
-    console.log('Scroll event:', {
-      scrollTop,
-      scrollHeight,
-      clientHeight,
-      isAtBottomNow,
-      threadId: selectedThread?.id,
-      contactName: selectedThread?.contact_name
-    })
+
     
     setIsAtBottom(isAtBottomNow)
     
@@ -100,6 +96,13 @@ export default function Inbox() {
   useEffect(() => {
     if (selectedThread) {
       fetchMessages(selectedThread.id)
+      
+      // Clear new message indicator for this thread when switching to it
+      setNewMessageThreads(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(selectedThread.id)
+        return newSet
+      })
     }
   }, [selectedThread])
 
@@ -108,18 +111,9 @@ export default function Inbox() {
     if (selectedThread && messages.length > 0) {
       const currentMessageCount = messages.length
       
-      console.log('Auto-scroll check:', {
-        threadId: selectedThread.id,
-        contactName: selectedThread.contact_name,
-        currentCount: currentMessageCount,
-        previousCount: previousMessageCount,
-        isAtBottom,
-        hasNewMessages
-      })
-      
       // If this is a new thread or first load, scroll to bottom
       if (previousMessageCount === 0) {
-        console.log('New thread detected, scrolling to bottom')
+        
         scrollToBottom()
         setPreviousMessageCount(currentMessageCount)
         return
@@ -129,16 +123,11 @@ export default function Inbox() {
       if (currentMessageCount !== previousMessageCount) {
         if (currentMessageCount > previousMessageCount) {
           // New messages arrived
-          console.log('New message detected!', {
-            currentCount: currentMessageCount,
-            previousCount: previousMessageCount,
-            isAtBottom,
-            hasNewMessages
-          })
+          
           
           if (isAtBottom) {
             // User is at bottom, auto-scroll to show new message
-            console.log('User at bottom, auto-scrolling')
+            
             setTimeout(() => {
               messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
               setIsAtBottom(true)
@@ -146,12 +135,10 @@ export default function Inbox() {
             }, 50)
           } else {
             // User is reading old messages, show new messages indicator
-            console.log('User not at bottom, showing new messages button')
             setHasNewMessages(true)
           }
         } else if (currentMessageCount < previousMessageCount) {
           // Thread changed (fewer messages), reset and scroll to bottom
-          console.log('Thread changed (fewer messages), resetting count')
           setTimeout(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
             setIsAtBottom(true)
@@ -167,10 +154,6 @@ export default function Inbox() {
 
   // Reset states when thread changes
   useEffect(() => {
-    console.log('Thread changed, resetting states:', {
-      threadId: selectedThread?.id,
-      contactName: selectedThread?.contact_name
-    })
     setIsAtBottom(true)
     setHasNewMessages(false)
     setPreviousMessageCount(0)
@@ -187,9 +170,57 @@ export default function Inbox() {
     try {
       const response = await fetch(`http://localhost:8084/api/threads?workspace_id=${workspaceId}`)
       const data = await response.json()
-      setThreads(data.threads || [])
-      if (data.threads?.length > 0 && !selectedThread) {
-        setSelectedThread(data.threads[0])
+      const newThreads = data.threads || []
+      
+      // Check for new messages in other threads
+      if (selectedThread) {
+        newThreads.forEach(async (thread: Thread) => {
+          if (thread.id !== selectedThread.id) {
+            try {
+              const messagesResponse = await fetch(`http://localhost:8084/api/threads/${thread.id}/messages`)
+              const messagesData = await messagesResponse.json()
+              const threadMessages = messagesData.messages || []
+              const currentCount = threadMessages.length
+              const previousCount = threadMessageCounts[thread.id] || 0
+              
+              // If message count increased, mark as new
+              if (currentCount > previousCount && previousCount > 0) {
+                setNewMessageThreads(prev => new Set([...prev, thread.id]))
+              }
+              
+              // Update the count for this thread
+              setThreadMessageCounts(prev => ({
+                ...prev,
+                [thread.id]: currentCount
+              }))
+            } catch (error) {
+              console.error(`Failed to check messages for thread ${thread.id}:`, error)
+            }
+          }
+        })
+      }
+      
+      setThreads(newThreads)
+      
+      // Initialize message counts for all threads on first load
+      if (Object.keys(threadMessageCounts).length === 0) {
+        const initialCounts: Record<string, number> = {}
+        newThreads.forEach(async (thread: Thread) => {
+          try {
+            const messagesResponse = await fetch(`http://localhost:8084/api/threads/${thread.id}/messages`)
+            const messagesData = await messagesResponse.json()
+            const threadMessages = messagesData.messages || []
+            initialCounts[thread.id] = threadMessages.length
+          } catch (error) {
+            console.error(`Failed to initialize count for thread ${thread.id}:`, error)
+            initialCounts[thread.id] = 0
+          }
+        })
+        setThreadMessageCounts(initialCounts)
+      }
+      
+      if (newThreads.length > 0 && !selectedThread) {
+        setSelectedThread(newThreads[0])
       }
     } catch (error) {
       console.error('Failed to fetch threads:', error)
@@ -228,7 +259,6 @@ export default function Inbox() {
       }
 
       const result = await response.json()
-      console.log('Message sent successfully:', result)
       
       // Clear input
       setNewMessage('')
@@ -277,8 +307,12 @@ export default function Inbox() {
               <div
                 key={thread.id}
                 onClick={() => setSelectedThread(thread)}
-                 className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
-                   selectedThread?.id === thread.id ? 'bg-blue-50 border-r-4 border-blue-500 shadow-sm' : ''
+                 className={`p-4 cursor-pointer hover:bg-gray-50 transition-all duration-300 ${
+                   selectedThread?.id === thread.id 
+                     ? 'bg-blue-50 border-r-4 border-blue-500 shadow-sm' 
+                     : newMessageThreads.has(thread.id)
+                     ? 'bg-green-50 border-r-2 border-green-400 shadow-md animate-pulse'
+                     : ''
                  }`}
               >
                  <div className="flex items-center justify-between">
@@ -289,9 +323,16 @@ export default function Inbox() {
                        </span>
                      </div>
                      <div className="flex-1 min-w-0">
-                       <p className="text-sm font-medium text-gray-900 truncate">
-                         {getStringValue(thread.contact_name) || `Contact ${thread.id.slice(0, 8)}`}
-                       </p>
+                       <div className="flex items-center space-x-2">
+                         <p className="text-sm font-medium text-gray-900 truncate">
+                           {getStringValue(thread.contact_name) || `Contact ${thread.id.slice(0, 8)}`}
+                         </p>
+                         {newMessageThreads.has(thread.id) && (
+                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-green-500 text-white animate-bounce">
+                             NEW
+                           </span>
+                         )}
+                       </div>
                       {getStringValue(thread.channel_type) && (
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                           getStringValue(thread.channel_type) === 'telegram' 

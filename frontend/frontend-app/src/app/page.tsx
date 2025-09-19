@@ -41,7 +41,8 @@ export default function Inbox() {
   const [hasNewMessages, setHasNewMessages] = useState(false)
   const [newMessageThreads, setNewMessageThreads] = useState<Set<string>>(new Set())
   const [threadMessageCounts, setThreadMessageCounts] = useState<Record<string, number>>({})
-  
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
+  const [lastReadMessageId, setLastReadMessageId] = useState<Record<string, string>>({})
   
   const [previousMessageCount, setPreviousMessageCount] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -288,68 +289,71 @@ export default function Inbox() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="h-16 bg-white border-b border-gray-200 flex items-center px-6">
-        <h1 className="text-xl font-semibold text-gray-900">Ally Inbox</h1>
-        <div className="ml-auto text-sm text-gray-500">
-          {threads.length} threads
-        </div>
-      </div>
-
-      <div className="flex h-[calc(100vh-4rem)]">
-        {/* Threads List */}
-        <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto">
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="font-medium text-gray-900">Conversations</h2>
+    <div className="min-h-screen" style={{
+      background: 'radial-gradient(1200px 600px at 80% -100px, rgba(79,70,229,0.08), transparent 60%), radial-gradient(1000px 500px at -200px 80%, rgba(79,70,229,0.06), transparent 60%), #f7f8fb'
+    }}>
+      <div className="grid grid-cols-[320px_1fr] gap-4 h-screen p-5">
+        {/* Sidebar */}
+        <aside className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-[0_10px_30px_rgba(17,24,39,0.08)] flex flex-col overflow-hidden border border-white/20">
+          <div className="p-4 pb-2 border-b border-white/20">
+            <div className="flex items-center gap-2.5 font-bold text-lg text-gray-800">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#4f46e5] shadow-[0_0_0_6px_#eef2ff]"></span>
+              Ally Inbox
+            </div>
+            <div className="mt-3 relative">
+              <span className="absolute top-1/2 left-2.5 transform -translate-y-1/2 text-sm text-[#8a93a3]">🔎</span>
+              <input 
+                type="text" 
+                placeholder="Search conversations" 
+                className="w-full pl-9 pr-3 py-2.5 border border-white/30 rounded-[10px] outline-none bg-white/40 backdrop-blur-sm focus:border-[#4f46e5] focus:shadow-[0_0_0_4px_#eef2ff] transition-all duration-200"
+              />
+            </div>
           </div>
-          <div className="divide-y divide-gray-200">
+          <div className="p-2 px-4 flex gap-2 flex-wrap">
+            <div className="px-2.5 py-1.5 rounded-full bg-white/30 backdrop-blur-sm text-[#4f46e5] text-xs font-semibold cursor-pointer">All</div>
+            <div className="px-2.5 py-1.5 rounded-full bg-white/20 backdrop-blur-sm text-gray-600 text-xs cursor-pointer hover:bg-white/30 transition-colors">Open</div>
+            <div className="px-2.5 py-1.5 rounded-full bg-white/20 backdrop-blur-sm text-gray-600 text-xs cursor-pointer hover:bg-white/30 transition-colors">Closed</div>
+            <div className="px-2.5 py-1.5 rounded-full bg-white/20 backdrop-blur-sm text-gray-600 text-xs cursor-pointer hover:bg-white/30 transition-colors">Telegram</div>
+          </div>
+          <div className="overflow-y-auto p-2">
             {threads.map((thread) => (
               <div
                 key={thread.id}
                 onClick={() => setSelectedThread(thread)}
-                 className={`p-4 cursor-pointer hover:bg-gray-50 transition-all duration-300 ${
-                   selectedThread?.id === thread.id 
-                     ? 'bg-blue-50 border-r-4 border-blue-500 shadow-sm' 
-                     : newMessageThreads.has(thread.id)
-                     ? 'bg-green-50 border-r-2 border-green-400 shadow-md animate-pulse'
-                     : ''
-                 }`}
+                className={`grid grid-cols-[40px_1fr_auto] gap-3 items-center p-2.5 rounded-xl cursor-pointer transition-all duration-150 ${
+                  selectedThread?.id === thread.id 
+                    ? 'bg-white/40 backdrop-blur-md border-r-4 border-blue-500 shadow-lg' 
+                    : newMessageThreads.has(thread.id)
+                    ? 'bg-green-400/20 border-r-2 border-green-400 shadow-md animate-pulse backdrop-blur-sm'
+                    : 'hover:bg-white/20'
+                }`}
               >
-                 <div className="flex items-center justify-between">
-                   <div className="flex items-center space-x-3 flex-1 min-w-0">
-                     <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center shadow-sm">
-                       <span className="text-white font-medium text-xs">
-                         {getStringValue(thread.contact_name)?.charAt(0).toUpperCase() || '?'}
-                       </span>
-                     </div>
-                     <div className="flex-1 min-w-0">
-                       <div className="flex items-center space-x-2">
-                         <p className="text-sm font-medium text-gray-900 truncate">
-                           {getStringValue(thread.contact_name) || `Contact ${thread.id.slice(0, 8)}`}
-                         </p>
-                         {newMessageThreads.has(thread.id) && (
-                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-green-500 text-white animate-bounce">
-                             NEW
-                           </span>
-                         )}
-                       </div>
-                      {getStringValue(thread.channel_type) && (
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          getStringValue(thread.channel_type) === 'telegram' 
-                            ? 'bg-blue-100 text-blue-800' 
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {getStringValue(thread.channel_type) === 'telegram' 
-                            ? '📱 Telegram' 
-                            : getStringValue(thread.channel_type)}
-                        </span>
-                      )}
-                       <p className="text-xs text-gray-500 mt-1">
-                         {thread.status} • {new Date(thread.updated_at).toLocaleString()}
-                       </p>
-                     </div>
-                   </div>
-                 </div>
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center text-white font-bold text-sm tracking-wide">
+                  {getStringValue(thread.contact_name)?.charAt(0).toUpperCase() || '?'}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="font-semibold text-sm text-gray-800 truncate">
+                      {getStringValue(thread.contact_name) || `Contact ${thread.id.slice(0, 8)}`}
+                    </div>
+                    <div className="text-xs text-gray-500 flex-shrink-0">
+                      {new Date(thread.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-600 truncate mt-0.5">
+                    {thread.status} • {getStringValue(thread.channel_type) === 'telegram' ? '📱 Telegram' : getStringValue(thread.channel_type)}
+                  </div>
+                </div>
+                {(unreadCounts[thread.id] || 0) > 0 && (
+                  <span className="bg-[#4f46e5] text-white text-xs px-1.5 py-0.5 rounded-full">
+                    {(unreadCounts[thread.id] || 0) > 99 ? '99+' : (unreadCounts[thread.id] || 0)}
+                  </span>
+                )}
+                {newMessageThreads.has(thread.id) && (
+                  <span className="bg-[#eab308] text-white text-xs px-1.5 py-0.5 rounded-full">
+                    !
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -359,123 +363,128 @@ export default function Inbox() {
               <p className="text-sm mt-1">Send a message to your Telegram bot to get started</p>
             </div>
           )}
-        </div>
+        </aside>
 
-        {/* Messages Area */}
-        <div className="flex-1 flex flex-col">
+        {/* Chat Area */}
+        <section className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-[0_10px_30px_rgba(17,24,39,0.08)] grid grid-rows-[auto_1fr_auto] overflow-hidden border border-white/20">
           {selectedThread ? (
             <>
-               {/* Thread Header */}
-               <div className="border-b border-gray-200 p-4 bg-white shadow-sm">
-                 <div className="flex items-center space-x-3">
-                   <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center shadow-md">
-                     <span className="text-white font-bold text-lg">
-                       {getStringValue(selectedThread.contact_name)?.charAt(0).toUpperCase() || '?'}
-                     </span>
-                   </div>
+              {/* Chat Header */}
+              <header className="flex items-center justify-between p-3.5 px-4 border-b border-white/20 bg-white/20 backdrop-blur-md">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center text-white font-bold text-lg">
+                    {getStringValue(selectedThread.contact_name)?.charAt(0).toUpperCase() || '?'}
+                  </div>
                   <div>
-                    <h3 className="font-medium text-gray-900">
+                    <div className="font-semibold text-base text-gray-800">
                       {getStringValue(selectedThread.contact_name) || `Contact ${selectedThread.id.slice(0, 8)}`}
-                    </h3>
-                    <div className="flex items-center space-x-2">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        getStringValue(selectedThread.channel_type) === 'telegram' 
-                          ? 'bg-blue-100 text-blue-800' 
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {getStringValue(selectedThread.channel_type) === 'telegram' 
-                          ? '📱 Telegram' 
-                          : getStringValue(selectedThread.channel_type)}
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/30 backdrop-blur-sm text-gray-700">
+                        {getStringValue(selectedThread.channel_type) === 'telegram' ? '📱 Telegram' : getStringValue(selectedThread.channel_type)}
                       </span>
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      <span className={`text-xs px-2 py-1 rounded-full ${
                         selectedThread.status === 'open' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-gray-100 text-gray-800'
+                          ? 'bg-green-100/80 text-green-800 border border-green-200/50' 
+                          : 'bg-white/30 backdrop-blur-sm text-gray-700'
                       }`}>
-                        {selectedThread.status}
+                        ● {selectedThread.status}
                       </span>
                     </div>
                   </div>
                 </div>
-              </div>
+                <div className="flex gap-2">
+                  <button className="px-2.5 py-1.5 rounded-full bg-white/30 backdrop-blur-sm text-gray-600 text-xs cursor-pointer hover:bg-white/40 transition-colors">Assign</button>
+                  <button className="px-2.5 py-1.5 rounded-full bg-white/30 backdrop-blur-sm text-gray-600 text-xs cursor-pointer hover:bg-white/40 transition-colors">Close</button>
+                </div>
+              </header>
               
               {/* Messages */}
               <div 
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto p-4 space-y-3 relative"
+                className="overflow-y-auto p-5 pb-4 bg-gradient-to-b from-transparent via-white/5 to-white/10 flex justify-center"
                 onScroll={handleScroll}
               >
+                <div className="w-full max-w-4xl">
+                <div className="text-center my-4">
+                  <span className="bg-white/40 backdrop-blur-sm text-gray-600 text-xs px-3 py-1.5 rounded-full shadow-sm">Сегодня</span>
+                </div>
                 {messages.slice().reverse().map((message) => (
                   <div
                     key={message.id}
                     className={`flex ${
                       message.direction === 'inbound' ? 'justify-start' : 'justify-end'
-                    }`}
+                    } my-2`}
                   >
-                     <div
-                       className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm ${
-                         message.direction === 'inbound'
-                           ? 'bg-white border-2 border-gray-200 text-gray-900'
-                           : 'bg-blue-500 text-white shadow-lg'
-                       }`}
-                     >
-                       <p className="text-sm leading-relaxed font-medium">{message.content}</p>
-                       <p
-                         className={`text-xs mt-2 ${
-                           message.direction === 'inbound' ? 'text-gray-500' : 'text-blue-100'
-                         }`}
-                       >
-                         {new Date(message.created_at).toLocaleTimeString()}
-                       </p>
-                     </div>
+                    <div
+                      className={`min-w-[120px] max-w-[60%] p-3 px-4 rounded-2xl relative shadow-lg ${
+                        message.direction === 'inbound'
+                          ? 'bg-white border border-gray-200 rounded-tl-md'
+                          : 'bg-blue-500 text-white rounded-tr-md'
+                      }`}
+                    >
+                    <div className={`text-sm leading-relaxed font-medium pr-12 ${
+                      message.direction === 'inbound' 
+                        ? 'text-gray-900' 
+                        : 'text-white'
+                    }`}>{message.content}</div>
+                      <div className={`absolute bottom-2 right-3 text-xs font-medium ${
+                        message.direction === 'inbound' 
+                          ? 'text-gray-500/70' 
+                          : 'text-white/70'
+                      }`}>
+                        {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
                   </div>
                 ))}
-                {messages.length === 0 && (
-                  <div className="text-center text-gray-500 mt-8">
-                    <p>No messages in this conversation</p>
-                  </div>
-                )}
-                {/* Invisible element for auto-scroll */}
-                <div ref={messagesEndRef} />
+                  {messages.length === 0 && (
+                    <div className="text-center text-gray-500 mt-8">
+                      <p>No messages in this conversation</p>
+                    </div>
+                  )}
+                  
+                  {/* New Messages Button */}
+                  {hasNewMessages && (
+                    <div className="fixed bottom-20 right-8 z-50">
+                      <button
+                        onClick={scrollToBottom}
+                        className="px-4 py-2 bg-[#4f46e5] text-white rounded-full shadow-lg hover:bg-[#4338ca] transition-colors flex items-center space-x-2"
+                      >
+                        <span>New messages ↓</span>
+                      </button>
+                    </div>
+                  )}
+                  {/* Invisible element for auto-scroll */}
+                  <div ref={messagesEndRef} />
+                </div>
               </div>
               
-              {/* New messages button - outside messages container */}
-              {hasNewMessages && (
-                <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-50">
-                  <button
-                    onClick={scrollToBottom}
-                    className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-full shadow-xl text-sm font-medium transition-colors duration-200 flex items-center space-x-2 border-2 border-white"
-                  >
-                    <span>New messages</span>
-                    <span className="text-lg">↓</span>
-                  </button>
-                </div>
-              )}
               
 
-               {/* Message Input */}
-               <div className="border-t border-gray-200 p-4 bg-white">
-                 <div className="flex space-x-3">
-                   <input
-                     type="text"
-                     value={newMessage}
-                     onChange={(e) => setNewMessage(e.target.value)}
-                     onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                     placeholder="Type your message..."
-                     className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 placeholder-gray-500 shadow-sm transition-colors"
-                   />
-                   <button
-                     onClick={sendMessage}
-                     disabled={!newMessage.trim()}
-                     className="px-6 py-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-lg transition-colors duration-200 flex items-center space-x-2"
-                   >
-                     <span>Send</span>
-                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                     </svg>
-                   </button>
-                 </div>
-               </div>
+              {/* Message Input */}
+              <div className="p-3 border-t border-white/20 bg-white/10 backdrop-blur-md flex justify-center">
+                <div className="w-full max-w-4xl grid grid-cols-[1fr_auto] gap-2.5">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                      placeholder="Напишите сообщение…"
+                      className="w-full px-3.5 pr-11 py-3 rounded-xl border border-gray-200 outline-none bg-white text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:shadow-[0_0_0_4px_#eef2ff] transition-all duration-200"
+                    />
+                    <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-lg text-gray-500 cursor-pointer">📎</span>
+                  </div>
+                  <button
+                    onClick={sendMessage}
+                    disabled={!newMessage.trim()}
+                    className="px-4 border-none bg-blue-500 text-white rounded-xl font-semibold cursor-pointer transition-all duration-200 shadow-md hover:brightness-105 active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Отправить
+                  </button>
+                </div>
+              </div>
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-500">
@@ -485,7 +494,7 @@ export default function Inbox() {
               </div>
             </div>
           )}
-        </div>
+        </section>
       </div>
     </div>
   )

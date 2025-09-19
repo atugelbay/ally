@@ -57,7 +57,7 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/ally?sslmode=disable
-      - REDIS_URL=redis:6379
+      - REDIS_URL=redis://redis:6379
     depends_on:
       postgres:
         condition: service_healthy

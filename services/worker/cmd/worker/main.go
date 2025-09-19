@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,8 +34,11 @@ func main() {
 	redisAddr := "127.0.0.1:6379"
 	if redisURL != "" {
 		// Simple parsing: remove redis:// prefix
-		if len(redisURL) > 7 && redisURL[:7] == "redis://" {
-			redisAddr = redisURL[7:]
+		if strings.HasPrefix(redisURL, "redis://") {
+			redisAddr = strings.TrimPrefix(redisURL, "redis://")
+		} else {
+			// If no redis:// prefix, use the URL as-is
+			redisAddr = redisURL
 		}
 	}
 
@@ -44,7 +48,7 @@ func main() {
 	defer stop()
 
 	go func() {
-		log.Info().Str("redis", redisAddr).Msg("worker starting")
+		log.Info().Str("redis_url", redisURL).Str("redis_addr", redisAddr).Msg("worker starting")
 		if err := srv.Run(context.Background()); err != nil {
 			log.Fatal().Err(err).Msg("worker stopped with error")
 		}

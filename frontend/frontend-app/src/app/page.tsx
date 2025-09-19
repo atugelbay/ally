@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 interface Thread {
   id: string
@@ -37,9 +37,40 @@ export default function Inbox() {
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(true)
+  const [isAtBottom, setIsAtBottom] = useState(true)
+  const [hasNewMessages, setHasNewMessages] = useState(false)
+  
+  const [previousMessageCount, setPreviousMessageCount] = useState(0)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
 
   // Mock workspace ID for now
   const workspaceId = 'f93a307d-4dc0-4c03-bbf5-63d0a5b48fa3'
+
+  // Auto-scroll to bottom of messages
+  const scrollToBottom = () => {
+    // Small delay to ensure DOM is updated
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      setIsAtBottom(true)
+      setHasNewMessages(false)
+    }, 100)
+  }
+
+  // Check if user is at bottom of messages
+  const handleScroll = () => {
+    if (!messagesContainerRef.current) return
+    
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current
+    const isAtBottomNow = scrollHeight - scrollTop - clientHeight < 10 // 10px threshold
+    
+    setIsAtBottom(isAtBottomNow)
+    
+    // If user scrolls to bottom, clear new messages indicator
+    if (isAtBottomNow) {
+      setHasNewMessages(false)
+    }
+  }
 
   useEffect(() => {
     fetchThreads()
@@ -61,6 +92,41 @@ export default function Inbox() {
     if (selectedThread) {
       fetchMessages(selectedThread.id)
     }
+  }, [selectedThread])
+
+  // Smart auto-scroll logic - only when new messages arrive
+  useEffect(() => {
+    if (selectedThread && messages.length > 0) {
+      const currentMessageCount = messages.length
+      
+      // If this is a new thread or first load, scroll to bottom
+      if (previousMessageCount === 0) {
+        scrollToBottom()
+        setPreviousMessageCount(currentMessageCount)
+        return
+      }
+      
+      // Only auto-scroll if new messages arrived (count increased)
+      if (currentMessageCount > previousMessageCount) {
+        if (isAtBottom) {
+          // User is at bottom, auto-scroll to show new message
+          scrollToBottom()
+        } else {
+          // User is reading old messages, show new messages indicator
+          setHasNewMessages(true)
+        }
+        
+        // Update previous count AFTER handling the new message
+        setPreviousMessageCount(currentMessageCount)
+      }
+    }
+  }, [messages, selectedThread, isAtBottom, previousMessageCount])
+
+  // Reset states when thread changes
+  useEffect(() => {
+    setIsAtBottom(true)
+    setHasNewMessages(false)
+    setPreviousMessageCount(0)
   }, [selectedThread])
 
   const fetchThreads = async () => {
@@ -201,7 +267,11 @@ export default function Inbox() {
               </div>
               
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div 
+                ref={messagesContainerRef}
+                className="flex-1 overflow-y-auto p-4 space-y-3 relative"
+                onScroll={handleScroll}
+              >
                 {messages.slice().reverse().map((message) => (
                   <div
                     key={message.id}
@@ -232,7 +302,23 @@ export default function Inbox() {
                     <p>No messages in this conversation</p>
                   </div>
                 )}
+                {/* Invisible element for auto-scroll */}
+                <div ref={messagesEndRef} />
               </div>
+              
+              {/* New messages button - outside messages container */}
+              {hasNewMessages && (
+                <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-50">
+                  <button
+                    onClick={scrollToBottom}
+                    className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-full shadow-xl text-sm font-medium transition-colors duration-200 flex items-center space-x-2 border-2 border-white"
+                  >
+                    <span>New messages</span>
+                    <span className="text-lg">↓</span>
+                  </button>
+                </div>
+              )}
+              
 
               {/* Message Input */}
               <div className="border-t border-gray-200 p-4 bg-white">

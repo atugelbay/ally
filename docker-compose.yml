@@ -24,6 +24,47 @@ services:
     volumes:
       - redisdata:/data
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/ally?sslmode=disable
+      - API_ADDRESS=:8084
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  webhooks:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhooks
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - WEBHOOK_ADDRESS=:9090
+    ports:
+      - "9090:9090"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/ally?sslmode=disable
+      - REDIS_URL=redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   pgdata: {}
   redisdata: {}

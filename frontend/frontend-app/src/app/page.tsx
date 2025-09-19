@@ -8,6 +8,8 @@ interface Thread {
   contact_id: string | null
   status: string
   updated_at: string
+  contact_name: string | null
+  channel_type: string | null
 }
 
 interface Message {
@@ -16,6 +18,17 @@ interface Message {
   type: string
   content: string | null
   created_at: string
+}
+
+// Helper function to safely extract string values from Go's sql.NullString
+function getStringValue(value: any): string | null {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (value && typeof value === 'object' && value.String) {
+    return value.String
+  }
+  return null
 }
 
 export default function Inbox() {
@@ -30,7 +43,19 @@ export default function Inbox() {
 
   useEffect(() => {
     fetchThreads()
-  }, [])
+    
+    // Simple polling instead of SSE for now
+    const interval = setInterval(() => {
+      fetchThreads()
+      if (selectedThread) {
+        fetchMessages(selectedThread.id)
+      }
+    }, 3000) // Poll every 3 seconds
+    
+    return () => {
+      clearInterval(interval)
+    }
+  }, [selectedThread])
 
   useEffect(() => {
     if (selectedThread) {
@@ -105,10 +130,23 @@ export default function Inbox() {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      Thread {thread.id.slice(0, 8)}...
-                    </p>
-                    <p className="text-xs text-gray-500">
+                    <div className="flex items-center space-x-2">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {getStringValue(thread.contact_name) || `Contact ${thread.id.slice(0, 8)}`}
+                      </p>
+                      {getStringValue(thread.channel_type) && (
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          getStringValue(thread.channel_type) === 'telegram' 
+                            ? 'bg-blue-100 text-blue-800' 
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {getStringValue(thread.channel_type) === 'telegram' 
+                            ? '📱 Telegram' 
+                            : getStringValue(thread.channel_type)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
                       {thread.status} • {new Date(thread.updated_at).toLocaleString()}
                     </p>
                   </div>
@@ -128,9 +166,43 @@ export default function Inbox() {
         <div className="flex-1 flex flex-col">
           {selectedThread ? (
             <>
+              {/* Thread Header */}
+              <div className="border-b border-gray-200 p-4 bg-white">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <span className="text-blue-600 font-medium text-sm">
+                      {getStringValue(selectedThread.contact_name)?.charAt(0).toUpperCase() || '?'}
+                    </span>
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-gray-900">
+                      {getStringValue(selectedThread.contact_name) || `Contact ${selectedThread.id.slice(0, 8)}`}
+                    </h3>
+                    <div className="flex items-center space-x-2">
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        getStringValue(selectedThread.channel_type) === 'telegram' 
+                          ? 'bg-blue-100 text-blue-800' 
+                          : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {getStringValue(selectedThread.channel_type) === 'telegram' 
+                          ? '📱 Telegram' 
+                          : getStringValue(selectedThread.channel_type)}
+                      </span>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        selectedThread.status === 'open' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {selectedThread.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.map((message) => (
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {messages.slice().reverse().map((message) => (
                   <div
                     key={message.id}
                     className={`flex ${
@@ -138,15 +210,15 @@ export default function Inbox() {
                     }`}
                   >
                     <div
-                      className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                      className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm ${
                         message.direction === 'inbound'
-                          ? 'bg-white border border-gray-200'
+                          ? 'bg-gray-100 border border-gray-200 text-gray-800'
                           : 'bg-blue-500 text-white'
                       }`}
                     >
-                      <p className="text-sm">{message.content}</p>
+                      <p className="text-sm leading-relaxed">{message.content}</p>
                       <p
-                        className={`text-xs mt-1 ${
+                        className={`text-xs mt-2 ${
                           message.direction === 'inbound' ? 'text-gray-500' : 'text-blue-100'
                         }`}
                       >
@@ -163,20 +235,20 @@ export default function Inbox() {
               </div>
 
               {/* Message Input */}
-              <div className="border-t border-gray-200 p-4">
-                <div className="flex space-x-2">
+              <div className="border-t border-gray-200 p-4 bg-white">
+                <div className="flex space-x-3">
                   <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
                     placeholder="Type your message..."
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="flex-1 px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50"
                   />
                   <button
                     onClick={sendMessage}
                     disabled={!newMessage.trim()}
-                    className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-6 py-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-sm"
                   >
                     Send
                   </button>

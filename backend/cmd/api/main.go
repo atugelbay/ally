@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -43,6 +44,18 @@ func newRouter(db *pgxpool.Pool) http.Handler {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	// Test endpoint to debug database
+	r.Get("/debug/count", func(w http.ResponseWriter, r *http.Request) {
+		var count int
+		err := db.QueryRow(r.Context(), "SELECT COUNT(*) FROM threads").Scan(&count)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"threads_count": count})
+	})
+
 	// Inbox API
 	r.Get("/api/threads", func(w http.ResponseWriter, r *http.Request) {
 		workspaceID := r.URL.Query().Get("workspace_id")
@@ -50,8 +63,6 @@ func newRouter(db *pgxpool.Pool) http.Handler {
 			http.Error(w, "workspace_id required", http.StatusBadRequest)
 			return
 		}
-
-		log.Info().Str("workspace_id", workspaceID).Msg("Starting threads query")
 
 		// Test connection first
 		if db == nil {
@@ -61,10 +72,19 @@ func newRouter(db *pgxpool.Pool) http.Handler {
 		}
 
 		rows, err := db.Query(r.Context(), `
-            SELECT id::text, channel_id::text, contact_id::text, status, updated_at
-            FROM threads
-            WHERE workspace_id = $1::uuid
-            ORDER BY updated_at DESC
+            SELECT 
+                t.id::text, 
+                t.channel_id::text, 
+                t.contact_id::text, 
+                t.status, 
+                t.updated_at,
+                c.display_name,
+                ch.type as channel_type
+            FROM threads t
+            LEFT JOIN contacts c ON t.contact_id = c.id
+            LEFT JOIN channels ch ON t.channel_id = ch.id
+            WHERE t.workspace_id = $1::uuid
+            ORDER BY t.updated_at DESC
             LIMIT 50
         `, workspaceID)
 		if err != nil {
@@ -76,16 +96,18 @@ func newRouter(db *pgxpool.Pool) http.Handler {
 		}
 		defer rows.Close()
 		type thread struct {
-			ID        string         `json:"id"`
-			ChannelID string         `json:"channel_id"`
-			ContactID sql.NullString `json:"contact_id"`
-			Status    string         `json:"status"`
-			UpdatedAt time.Time      `json:"updated_at"`
+			ID          string         `json:"id"`
+			ChannelID   string         `json:"channel_id"`
+			ContactID   sql.NullString `json:"contact_id"`
+			Status      string         `json:"status"`
+			UpdatedAt   time.Time      `json:"updated_at"`
+			ContactName sql.NullString `json:"contact_name"`
+			ChannelType sql.NullString `json:"channel_type"`
 		}
 		var list []thread
 		for rows.Next() {
 			var t thread
-			if err := rows.Scan(&t.ID, &t.ChannelID, &t.ContactID, &t.Status, &t.UpdatedAt); err != nil {
+			if err := rows.Scan(&t.ID, &t.ChannelID, &t.ContactID, &t.Status, &t.UpdatedAt, &t.ContactName, &t.ChannelType); err != nil {
 				http.Error(w, "scan error", http.StatusInternalServerError)
 				return
 			}
@@ -97,11 +119,19 @@ func newRouter(db *pgxpool.Pool) http.Handler {
 
 	r.Get("/api/threads/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		threadID := chi.URLParam(r, "id")
+
+		// Test connection first
+		if db == nil {
+			log.Error().Msg("Database connection is nil")
+			http.Error(w, "db connection nil", http.StatusInternalServerError)
+			return
+		}
+
 		rows, err := db.Query(r.Context(), `
             SELECT id::text, direction, type, content, created_at
             FROM messages
             WHERE thread_id = $1::uuid
-            ORDER BY created_at ASC
+            ORDER BY created_at DESC
             LIMIT 200
         `, threadID)
 		if err != nil {
@@ -132,6 +162,81 @@ func newRouter(db *pgxpool.Pool) http.Handler {
 		json.NewEncoder(w).Encode(map[string]any{"messages": list})
 	})
 
+	// SSE endpoint for real-time updates
+	r.Options("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	r.Get("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+
+		// Create a channel to send events
+		eventChan := make(chan string, 10)
+
+		// Store the channel (in production, use a proper connection manager)
+		// For now, we'll use a simple approach with polling
+		go func() {
+			defer close(eventChan)
+
+			// Simple polling every 1 second for faster updates
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+
+			lastMessageCount := 0
+			lastThreadCount := 0
+
+			for {
+				select {
+				case <-ticker.C:
+					if db == nil {
+						continue
+					}
+
+					// Check for new messages
+					var messageCount int
+					err := db.QueryRow(r.Context(), `SELECT COUNT(*) FROM messages`).Scan(&messageCount)
+					if err != nil {
+						continue
+					}
+
+					// Check for new threads
+					var threadCount int
+					err = db.QueryRow(r.Context(), `SELECT COUNT(*) FROM threads`).Scan(&threadCount)
+					if err != nil {
+						continue
+					}
+
+					// Send event if there are new messages or threads
+					if messageCount > lastMessageCount || threadCount > lastThreadCount {
+						eventChan <- fmt.Sprintf(`data: {"type": "update", "messages": %d, "threads": %d}`, messageCount, threadCount)
+						lastMessageCount = messageCount
+						lastThreadCount = threadCount
+					}
+
+				case <-r.Context().Done():
+					return
+				}
+			}
+		}()
+
+		// Send events to client
+		for event := range eventChan {
+			fmt.Fprintf(w, "%s\n\n", event)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+	})
+
 	return r
 }
 
@@ -152,15 +257,20 @@ func main() {
 	if dbURL != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		pool, err := pgxpool.New(ctx, dbURL)
+		var err error
+		db, err = pgxpool.New(ctx, dbURL)
 		if err == nil {
-			// Настройки пула соединений
-			pool.Config().MaxConns = 10
-			pool.Config().MinConns = 1
-			pool.Config().MaxConnLifetime = 30 * time.Minute
-			pool.Config().MaxConnIdleTime = 5 * time.Minute
+			// Test actual connection with ping
+			if err := db.Ping(ctx); err != nil {
+				log.Error().Err(err).Str("database_url", dbURL).Msg("db ping failed")
+				db.Close()
+				db = nil
+			} else {
+				log.Info().Msg("Database connection successful")
+			}
 		} else {
 			log.Error().Err(err).Str("database_url", dbURL).Msg("db connect failed")
+			db = nil
 		}
 	} else {
 		log.Error().Msg("DATABASE_URL environment variable is not set")

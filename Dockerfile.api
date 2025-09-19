@@ -1,0 +1,28 @@
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the API
+RUN go build -o api ./backend/cmd/api
+
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# Copy the binary
+COPY --from=builder /app/api .
+
+# Expose port
+EXPOSE 8084
+
+# Run the API
+CMD ["./api"]

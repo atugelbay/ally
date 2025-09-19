@@ -26,8 +26,18 @@ func main() {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
 	}
 
-	redisAddr := getenv("REDIS_ADDR", "127.0.0.1:6379")
+	redisURL := getenv("REDIS_URL", "redis://127.0.0.1:6379")
 	dbURL := getenv("DATABASE_URL", "")
+
+	// Extract address from Redis URL for asynq
+	redisAddr := "127.0.0.1:6379"
+	if redisURL != "" {
+		// Simple parsing: remove redis:// prefix
+		if len(redisURL) > 7 && redisURL[:7] == "redis://" {
+			redisAddr = redisURL[7:]
+		}
+	}
+
 	srv := worker.New(redisAddr, dbURL)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

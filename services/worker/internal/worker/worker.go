@@ -62,14 +62,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) handleWebhookIncoming(ctx context.Context, t *asynq.Task) error {
 	var payload map[string]any
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		fmt.Printf("Failed to unmarshal payload: %v\n", err)
 		return err
 	}
 
 	provider, _ := payload["provider"].(string)
 	body, _ := payload["body"].(string)
 	sigValid, _ := payload["signature_valid"].(bool)
-
-	fmt.Printf("Processing webhook: provider=%s, body_len=%d, sig_valid=%t\n", provider, len(body), sigValid)
 
 	// Persist raw event if DB is available
 	if s.db != nil {
@@ -78,20 +77,16 @@ func (s *Server) handleWebhookIncoming(ctx context.Context, t *asynq.Task) error
 			provider, body, sigValid,
 		)
 		if err != nil {
-			fmt.Printf("Failed to insert raw event: %v\n", err)
 			return err
 		}
-		fmt.Printf("Raw event saved successfully\n")
 	}
 
 	// Parse and create threads/messages based on provider
 	switch provider {
 	case "tg":
 		if err := s.parseTelegramEvent(ctx, body); err != nil {
-			fmt.Printf("Failed to parse telegram event: %v\n", err)
 			return fmt.Errorf("parse telegram event: %w", err)
 		}
-		fmt.Printf("Telegram event parsed successfully\n")
 	case "wa":
 		// TODO: WhatsApp parsing
 		return nil

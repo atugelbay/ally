@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -44,7 +45,20 @@ func main() {
 
 	cfg := getServerConfig()
 	// asynq client for enqueuing webhook events
-	redisAddr := getenv("REDIS_ADDR", "127.0.0.1:6379")
+	redisURL := getenv("REDIS_URL", "redis://127.0.0.1:6379")
+
+	// Extract address from Redis URL for asynq
+	redisAddr := "127.0.0.1:6379"
+	if redisURL != "" {
+		// Simple parsing: remove redis:// prefix
+		if strings.HasPrefix(redisURL, "redis://") {
+			redisAddr = strings.TrimPrefix(redisURL, "redis://")
+		} else {
+			// If no prefix, use as is
+			redisAddr = redisURL
+		}
+	}
+
 	client := asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
 	defer client.Close()
 

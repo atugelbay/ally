@@ -64,6 +64,15 @@ export default function Inbox() {
     const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current
     const isAtBottomNow = scrollHeight - scrollTop - clientHeight < 10 // 10px threshold
     
+    console.log('Scroll event:', {
+      scrollTop,
+      scrollHeight,
+      clientHeight,
+      isAtBottomNow,
+      threadId: selectedThread?.id,
+      contactName: selectedThread?.contact_name
+    })
+    
     setIsAtBottom(isAtBottomNow)
     
     // If user scrolls to bottom, clear new messages indicator
@@ -99,24 +108,58 @@ export default function Inbox() {
     if (selectedThread && messages.length > 0) {
       const currentMessageCount = messages.length
       
+      console.log('Auto-scroll check:', {
+        threadId: selectedThread.id,
+        contactName: selectedThread.contact_name,
+        currentCount: currentMessageCount,
+        previousCount: previousMessageCount,
+        isAtBottom,
+        hasNewMessages
+      })
+      
       // If this is a new thread or first load, scroll to bottom
       if (previousMessageCount === 0) {
+        console.log('New thread detected, scrolling to bottom')
         scrollToBottom()
         setPreviousMessageCount(currentMessageCount)
         return
       }
       
-      // Only auto-scroll if new messages arrived (count increased)
-      if (currentMessageCount > previousMessageCount) {
-        if (isAtBottom) {
-          // User is at bottom, auto-scroll to show new message
-          scrollToBottom()
-        } else {
-          // User is reading old messages, show new messages indicator
-          setHasNewMessages(true)
+      // Handle message count changes
+      if (currentMessageCount !== previousMessageCount) {
+        if (currentMessageCount > previousMessageCount) {
+          // New messages arrived
+          console.log('New message detected!', {
+            currentCount: currentMessageCount,
+            previousCount: previousMessageCount,
+            isAtBottom,
+            hasNewMessages
+          })
+          
+          if (isAtBottom) {
+            // User is at bottom, auto-scroll to show new message
+            console.log('User at bottom, auto-scrolling')
+            setTimeout(() => {
+              messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+              setIsAtBottom(true)
+              setHasNewMessages(false)
+            }, 50)
+          } else {
+            // User is reading old messages, show new messages indicator
+            console.log('User not at bottom, showing new messages button')
+            setHasNewMessages(true)
+          }
+        } else if (currentMessageCount < previousMessageCount) {
+          // Thread changed (fewer messages), reset and scroll to bottom
+          console.log('Thread changed (fewer messages), resetting count')
+          setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+            setIsAtBottom(true)
+            setHasNewMessages(false)
+          }, 50)
         }
         
-        // Update previous count AFTER handling the new message
+        // Update previous count AFTER handling the change
         setPreviousMessageCount(currentMessageCount)
       }
     }
@@ -124,9 +167,20 @@ export default function Inbox() {
 
   // Reset states when thread changes
   useEffect(() => {
+    console.log('Thread changed, resetting states:', {
+      threadId: selectedThread?.id,
+      contactName: selectedThread?.contact_name
+    })
     setIsAtBottom(true)
     setHasNewMessages(false)
     setPreviousMessageCount(0)
+    
+    // Force scroll to bottom when switching threads
+    if (selectedThread) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 100)
+    }
   }, [selectedThread])
 
   const fetchThreads = async () => {
@@ -157,9 +211,42 @@ export default function Inbox() {
   const sendMessage = async () => {
     if (!selectedThread || !newMessage.trim()) return
 
-    // TODO: Implement send message API
-    console.log('Sending message:', newMessage, 'to thread:', selectedThread.id)
-    setNewMessage('')
+    try {
+      const response = await fetch(`http://localhost:8084/api/threads/${selectedThread.id}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: newMessage.trim(),
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Failed to send message')
+      }
+
+      const result = await response.json()
+      console.log('Message sent successfully:', result)
+      
+      // Clear input
+      setNewMessage('')
+      
+      // Refresh messages to show the sent message
+      await fetchMessages(selectedThread.id)
+      
+      // Auto-scroll to bottom after sending message
+      // Force scroll to bottom when sending a message
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+        setIsAtBottom(true)
+        setHasNewMessages(false)
+      }, 100)
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      alert('Failed to send message: ' + error.message)
+    }
   }
 
   if (loading) {
@@ -190,16 +277,21 @@ export default function Inbox() {
               <div
                 key={thread.id}
                 onClick={() => setSelectedThread(thread)}
-                className={`p-4 cursor-pointer hover:bg-gray-50 ${
-                  selectedThread?.id === thread.id ? 'bg-blue-50 border-r-2 border-blue-500' : ''
-                }`}
+                 className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
+                   selectedThread?.id === thread.id ? 'bg-blue-50 border-r-4 border-blue-500 shadow-sm' : ''
+                 }`}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2">
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {getStringValue(thread.contact_name) || `Contact ${thread.id.slice(0, 8)}`}
-                      </p>
+                 <div className="flex items-center justify-between">
+                   <div className="flex items-center space-x-3 flex-1 min-w-0">
+                     <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center shadow-sm">
+                       <span className="text-white font-medium text-xs">
+                         {getStringValue(thread.contact_name)?.charAt(0).toUpperCase() || '?'}
+                       </span>
+                     </div>
+                     <div className="flex-1 min-w-0">
+                       <p className="text-sm font-medium text-gray-900 truncate">
+                         {getStringValue(thread.contact_name) || `Contact ${thread.id.slice(0, 8)}`}
+                       </p>
                       {getStringValue(thread.channel_type) && (
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                           getStringValue(thread.channel_type) === 'telegram' 
@@ -211,12 +303,12 @@ export default function Inbox() {
                             : getStringValue(thread.channel_type)}
                         </span>
                       )}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {thread.status} • {new Date(thread.updated_at).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
+                       <p className="text-xs text-gray-500 mt-1">
+                         {thread.status} • {new Date(thread.updated_at).toLocaleString()}
+                       </p>
+                     </div>
+                   </div>
+                 </div>
               </div>
             ))}
           </div>
@@ -232,14 +324,14 @@ export default function Inbox() {
         <div className="flex-1 flex flex-col">
           {selectedThread ? (
             <>
-              {/* Thread Header */}
-              <div className="border-b border-gray-200 p-4 bg-white">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <span className="text-blue-600 font-medium text-sm">
-                      {getStringValue(selectedThread.contact_name)?.charAt(0).toUpperCase() || '?'}
-                    </span>
-                  </div>
+               {/* Thread Header */}
+               <div className="border-b border-gray-200 p-4 bg-white shadow-sm">
+                 <div className="flex items-center space-x-3">
+                   <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center shadow-md">
+                     <span className="text-white font-bold text-lg">
+                       {getStringValue(selectedThread.contact_name)?.charAt(0).toUpperCase() || '?'}
+                     </span>
+                   </div>
                   <div>
                     <h3 className="font-medium text-gray-900">
                       {getStringValue(selectedThread.contact_name) || `Contact ${selectedThread.id.slice(0, 8)}`}
@@ -279,22 +371,22 @@ export default function Inbox() {
                       message.direction === 'inbound' ? 'justify-start' : 'justify-end'
                     }`}
                   >
-                    <div
-                      className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm ${
-                        message.direction === 'inbound'
-                          ? 'bg-gray-100 border border-gray-200 text-gray-800'
-                          : 'bg-blue-500 text-white'
-                      }`}
-                    >
-                      <p className="text-sm leading-relaxed">{message.content}</p>
-                      <p
-                        className={`text-xs mt-2 ${
-                          message.direction === 'inbound' ? 'text-gray-500' : 'text-blue-100'
-                        }`}
-                      >
-                        {new Date(message.created_at).toLocaleTimeString()}
-                      </p>
-                    </div>
+                     <div
+                       className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-sm ${
+                         message.direction === 'inbound'
+                           ? 'bg-white border-2 border-gray-200 text-gray-900'
+                           : 'bg-blue-500 text-white shadow-lg'
+                       }`}
+                     >
+                       <p className="text-sm leading-relaxed font-medium">{message.content}</p>
+                       <p
+                         className={`text-xs mt-2 ${
+                           message.direction === 'inbound' ? 'text-gray-500' : 'text-blue-100'
+                         }`}
+                       >
+                         {new Date(message.created_at).toLocaleTimeString()}
+                       </p>
+                     </div>
                   </div>
                 ))}
                 {messages.length === 0 && (
@@ -320,26 +412,29 @@ export default function Inbox() {
               )}
               
 
-              {/* Message Input */}
-              <div className="border-t border-gray-200 p-4 bg-white">
-                <div className="flex space-x-3">
-                  <input
-                    type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                    placeholder="Type your message..."
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50"
-                  />
-                  <button
-                    onClick={sendMessage}
-                    disabled={!newMessage.trim()}
-                    className="px-6 py-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-sm"
-                  >
-                    Send
-                  </button>
-                </div>
-              </div>
+               {/* Message Input */}
+               <div className="border-t border-gray-200 p-4 bg-white">
+                 <div className="flex space-x-3">
+                   <input
+                     type="text"
+                     value={newMessage}
+                     onChange={(e) => setNewMessage(e.target.value)}
+                     onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                     placeholder="Type your message..."
+                     className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 placeholder-gray-500 shadow-sm transition-colors"
+                   />
+                   <button
+                     onClick={sendMessage}
+                     disabled={!newMessage.trim()}
+                     className="px-6 py-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-lg transition-colors duration-200 flex items-center space-x-2"
+                   >
+                     <span>Send</span>
+                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                     </svg>
+                   </button>
+                 </div>
+               </div>
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-500">

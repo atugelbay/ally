@@ -31,6 +31,7 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/ally?sslmode=disable
       - API_ADDRESS=:8084
+      - TG_BOT_TOKEN=7805912966:AAE3dI4nJzHoSRswijXWZFsux5y_yc-xFlQ
     ports:
       - "8084:8084"
     depends_on:
